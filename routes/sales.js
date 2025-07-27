@@ -180,13 +180,14 @@ router.get('/kpis', authenticateToken, async (req, res) => {
   try {
     const { branch } = req.query;
     
+    // MODIFIED: Cast multiplied values to bigint to prevent "integer out of range" error
     let inventoryQuery = `
       SELECT 
         SUM(i.avl_stock) as total_stock,
         SUM(i.transit) as total_transit,
         SUM(i.billing) as total_billing,
         SUM(i.month_plan) as total_plan,
-        SUM(i.avl_stock * p.price) as inventory_value
+        SUM(i.avl_stock::bigint * p.price::bigint) as inventory_value
       FROM inventory i
       JOIN products p ON i.product_id = p.id
     `;

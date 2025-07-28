@@ -4,7 +4,7 @@
   "description": "Hansei Sales Intelligence Backend API",
   "main": "app.js",
   "scripts": {
-    "start": "node scripts/create-schema.js && npm run import-data && node app.js",
+    "start": "node app.js",
     "dev": "nodemon app.js",
     "build": "echo 'No build step required'",
     "test": "echo 'No tests specified'",

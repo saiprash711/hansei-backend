@@ -43,11 +43,17 @@ const blockScrapers = (req, res, next) => {
 // --- MIDDLEWARE ---
 app.use(helmet());
 
-// UPDATED: Enhanced CORS configuration for Render
+// =================================================================
+// --- FIX: Updated CORS configuration for Vercel Deployment ---
+// Added the deployed frontend URL to the list of allowed origins.
+// This will resolve the "not connected" error by allowing the
+// Vercel site to make requests to the Render backend.
+// =================================================================
 app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://daikin-n9wy.onrender.com',
+    'https://hansei-frontend.vercel.app', // Added your Vercel frontend URL
     /\.vercel\.app$/,
     /\.netlify\.app$/,
     /localhost:\d{4}$/

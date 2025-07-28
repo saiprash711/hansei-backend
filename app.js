@@ -9,6 +9,15 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '0.0.0.0'; // ADDED: Render requirement
 
+// =================================================================
+// --- FIX: Trust Proxy for Render Deployment ---
+// This line is necessary for express-rate-limit to work correctly
+// behind a proxy like Render. It allows Express to trust the 
+// X-Forwarded-For header to identify the user's real IP address.
+// =================================================================
+app.set('trust proxy', 1);
+
+
 // --- Helper function to validate imported routes ---
 function validateRouter(routerModule, filePath) {
   if (typeof routerModule !== 'function' || !routerModule.stack) {
@@ -43,12 +52,6 @@ const blockScrapers = (req, res, next) => {
 // --- MIDDLEWARE ---
 app.use(helmet());
 
-// =================================================================
-// --- FIX: Updated CORS configuration for Vercel Deployment ---
-// Added the deployed frontend URL to the list of allowed origins.
-// This will resolve the "not connected" error by allowing the
-// Vercel site to make requests to the Render backend.
-// =================================================================
 app.use(cors({
   origin: [
     'http://localhost:3000',

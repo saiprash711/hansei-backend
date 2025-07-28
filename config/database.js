@@ -3,7 +3,12 @@ const { Pool } = require('pg');
 const mongoose = require('mongoose');
 require('dotenv').config();
 
-// UPDATED: Enhanced PostgreSQL connection with better error handling
+// =================================================================
+// --- FIX: Enforce SSL Connection for Production Database ---
+// Render's Postgres databases require secure SSL connections. This
+// configuration ensures that whenever the NODE_ENV is 'production',
+// the application will connect to the database using SSL.
+// =================================================================
 const pgPool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
@@ -12,8 +17,8 @@ const pgPool = new Pool({
   password: process.env.DB_PASSWORD || '',
   max: 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 20000, // Increased for Render
-  // ADDED: SSL configuration for production databases
+  connectionTimeoutMillis: 20000, 
+  // This line enables SSL for production environments like Render.
   ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
 });
 
@@ -25,7 +30,6 @@ pgPool.on('connect', (client) => {
 
 pgPool.on('error', (err) => {
   console.error('❌ PostgreSQL connection error:', err.message);
-  // Don't exit process in production, just log the error
   if (process.env.NODE_ENV !== 'production') {
     console.error('Full error:', err);
   }
@@ -47,7 +51,6 @@ const connectMongoDB = async () => {
     }
   } catch (error) {
     console.log('⚠️ MongoDB connection failed, continuing without analytics logging:', error.message);
-    // Don't throw error, just continue without MongoDB
   }
 };
 

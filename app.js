@@ -1,5 +1,5 @@
 const express = require('express');
-const cors =require('cors');
+const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
@@ -7,167 +7,117 @@ require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0'; // ADDED: Render requirement
+const HOST = process.env.HOST || '0.0.0.0';
 
-// =================================================================
 // --- FIX: Trust Proxy for Render Deployment ---
-// This line is necessary for express-rate-limit to work correctly
-// behind a proxy like Render. It allows Express to trust the 
-// X-Forwarded-For header to identify the user's real IP address.
-// =================================================================
 app.set('trust proxy', 1);
-
 
 // --- Helper function to validate imported routes ---
 function validateRouter(routerModule, filePath) {
   if (typeof routerModule !== 'function' || !routerModule.stack) {
-    throw new Error(
-      `❌ FATAL: Failed to load router from '${filePath}'.\n` +
-      `This is not a valid Express router. Please check the file for syntax errors or ensure 'module.exports = router;' is correct.`
-    );
+    throw new Error(`❌ FATAL: Failed to load router from '${filePath}'. Not a valid Express router.`);
   }
   return routerModule;
 }
 
-// --- SECURITY ENHANCEMENTS ---
-const apiLimiter = rateLimit({
-	windowMs: 15 * 60 * 1000,
-	max: 100,
-	standardHeaders: true,
-	legacyHeaders: false,
-    message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
-});
-
-const blockScrapers = (req, res, next) => {
-    const userAgent = req.get('User-Agent');
-    if (userAgent) {
-        const blockedAgents = ['python-requests', 'scrapy', 'node-fetch', 'wget', 'curl', 'postman'];
-        if (blockedAgents.some(agent => userAgent.toLowerCase().includes(agent))) {
-            return res.status(404).json({ error: 'Endpoint not found' });
-        }
-    }
-    next();
-};
-
 // --- MIDDLEWARE ---
 app.use(helmet());
-
 app.use(cors({
   origin: [
     'http://localhost:3000',
-    'https://daikin-n9wy.onrender.com',
-    'https://hansei-frontend.vercel.app', // Added your Vercel frontend URL
-    /\.vercel\.app$/,
-    /\.netlify\.app$/,
-    /localhost:\d{4}$/
+    'https://hansei-frontend.vercel.app',
+    /\.vercel\.app$/
   ],
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  credentials: true
 }));
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(morgan('combined'));
 
-app.use('/api/', apiLimiter);
-app.use('/api/', blockScrapers);
-
-// ADDED: Root health check for Render
-app.get('/', (req, res) => {
-  res.status(200).json({ 
-    message: 'Hansei Backend API is running!',
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    version: '1.0.1'
-  });
+// --- Rate Limiting and Security ---
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
 });
+app.use('/api/', apiLimiter);
 
-// --- Import and Validate Routes ---
+// --- ROUTES ---
 try {
-    const authRoutes = validateRouter(require('./routes/auth'), './routes/auth.js');
-    const salesRoutes = validateRouter(require('./routes/sales'), './routes/sales.js');
-    const analyticsRoutes = validateRouter(require('./routes/analytics'), './routes/analytics.js');
-    const uploadRoutes = validateRouter(require('./routes/upload'), './routes/upload.js');
-    const chatbotRoutes = validateRouter(require('./routes/chatbot'), './routes/chatbot.js');
-
-    // --- Use Routes ---
-    app.use('/api/auth', authRoutes);
-    app.use('/api/sales', salesRoutes);
-    app.use('/api/analytics', analyticsRoutes);
-    app.use('/api/upload', uploadRoutes);
-    app.use('/api/chatbot', chatbotRoutes);
-
+  app.use('/api/auth', validateRouter(require('./routes/auth'), './routes/auth.js'));
+  app.use('/api/sales', validateRouter(require('./routes/sales'), './routes/sales.js'));
+  app.use('/api/analytics', validateRouter(require('./routes/analytics'), './routes/analytics.js'));
+  app.use('/api/upload', validateRouter(require('./routes/upload'), './routes/upload.js'));
+  app.use('/api/chatbot', validateRouter(require('./routes/chatbot'), './routes/chatbot.js'));
 } catch (error) {
-    console.error(error.message);
-    process.exit(1);
+  console.error(error.message);
+  process.exit(1);
 }
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    version: '1.0.1',
-    database: 'connected'
-  });
-});
+// --- Health Check Endpoints ---
+app.get('/', (req, res) => res.status(200).json({ message: 'Hansei Backend API is running!', status: 'healthy' }));
+app.get('/api/health', (req, res) => res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() }));
 
-// ADDED: Enhanced error handling for Render
+// --- Error Handling ---
 app.use((err, req, res, next) => {
   console.error('Error Stack:', err.stack);
-  console.error('Error Message:', err.message);
-  
-  // Don't leak error details in production
-  const isDevelopment = process.env.NODE_ENV === 'development';
-  
-  res.status(err.status || 500).json({
-    error: {
-      message: isDevelopment ? err.message : 'Internal server error',
-      status: err.status || 500,
-      ...(isDevelopment && { stack: err.stack })
+  res.status(err.status || 500).json({ error: { message: 'Internal server error' } });
+});
+app.use((req, res) => res.status(404).json({ error: { message: 'Endpoint not found' } }));
+
+// =================================================================
+// --- FINAL FIX: Automatic Database Initialization ---
+// This block runs when the server starts. It checks if the database
+// is set up. If not, it creates all the tables and imports the
+// initial data automatically. This is a robust, one-time setup.
+// =================================================================
+const { pgPool } = require('./config/database');
+const { createTables } = require('./scripts/create-schema');
+const { importCSVSalesData } = require('./scripts/import-excel');
+
+async function initializeApp() {
+  const client = await pgPool.connect();
+  try {
+    const res = await client.query("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'users');");
+    const tableExists = res.rows[0].exists;
+
+    if (!tableExists) {
+      console.log('🔴 "users" table not found. Initializing database schema and data...');
+      await createTables();
+      await importCSVSalesData();
+      console.log('🟢 Database initialization complete.');
+    } else {
+      console.log('🟢 Database already initialized.');
     }
-  });
-});
-
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    error: {
-      message: 'Endpoint not found',
-      status: 404,
-      path: req.path
-    }
-  });
-});
-
-// UPDATED: Enhanced server startup for Render
-const server = app.listen(PORT, HOST, () => {
-  console.log(`🚀 Hansei Backend Server running on ${HOST}:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🌐 Health check: http://${HOST}:${PORT}/api/health`);
-  console.log('🔒 Anti-scraping measures are active.');
-});
-
-// ADDED: Graceful shutdown handling
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received');
-  if (server) {
-    server.close(() => {
-      console.log('HTTP server closed');
-      process.exit(0);
-    });
+  } catch (err) {
+    console.error('💥 FATAL: Database initialization failed:', err);
+    process.exit(1);
+  } finally {
+    client.release();
   }
-});
+}
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received');
-  if (server) {
+// --- Start Server ---
+initializeApp().then(() => {
+  const server = app.listen(PORT, HOST, () => {
+    console.log(`🚀 Hansei Backend Server running on ${HOST}:${PORT}`);
+  });
+
+  const gracefulShutdown = (signal) => {
+    console.log(`${signal} received. Shutting down gracefully.`);
     server.close(() => {
-      console.log('HTTP server closed');
-      process.exit(0);
+      console.log('HTTP server closed.');
+      pgPool.end(() => {
+        console.log('Database pool closed.');
+        process.exit(0);
+      });
     });
-  }
+  };
+
+  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 });
 
 module.exports = app;

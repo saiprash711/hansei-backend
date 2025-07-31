@@ -17,6 +17,7 @@ const allowedOrigins = [
   'http://127.0.0.1', // Allows 127.0.0.1 on any port
   'null', // Important for local file testing (file:///)
   'https://chennai-frontend.vercel.app', // Your deployed frontend app
+  'https://chennai-frontend-3m487rgbn-sais-projects-266c2092.vercel.app', // Specific preview URL
   'https://*.vercel.app' // Allow all Vercel subdomains for previews
 ];
 

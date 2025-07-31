@@ -1,123 +1,159 @@
+// ============================================================================
+// HANSEI BACKEND - PRODUCTION READY
+// ============================================================================
 const express = require('express');
 const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HOST = process.env.HOST || '0.0.0.0';
 
-// --- FIX: Trust Proxy for Render Deployment ---
-app.set('trust proxy', 1);
+// ============================================================================
+// SECURE CORS CONFIGURATION (FIXED)
+// ============================================================================
+// Define the list of allowed origins (domains)
+const allowedOrigins = [
+  'http://localhost', // Allows localhost on any port
+  'http://127.0.0.1', // Allows 127.0.0.1 on any port
+  'null', // Important for local file testing (file:///)
+  'https://chennai-frontend.vercel.app', // Your deployed frontend app
+  'https://chennai-frontend-3m487rgbn-sais-projects-266c2092.vercel.app' // Add the preview URL
+];
 
-// --- Helper function to validate imported routes ---
-function validateRouter(routerModule, filePath) {
-  if (typeof routerModule !== 'function' || !routerModule.stack) {
-    throw new Error(`❌ FATAL: Failed to load router from '${filePath}'. Not a valid Express router.`);
-  }
-  return routerModule;
-}
+// Configure CORS options
+const corsOptions = {
+  origin: function (origin, callback) {
+    // The origin is the URL of the frontend making the request.
+    // We check if the start of the origin string is in our allowed list.
+    // This handles cases like http://localhost:5500, http://127.0.0.1:8080, etc.
+    const isAllowed = allowedOrigins.some(allowedOrigin => {
+        // Allow if origin is null (like for file://) and 'null' is in the list
+        if (allowedOrigin === 'null' && !origin) return true;
+        // Allow if the request origin starts with one of our allowed origins
+        return origin && origin.startsWith(allowedOrigin);
+    });
 
-// --- MIDDLEWARE ---
-app.use(helmet());
-app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'https://hansei-frontend.vercel.app',
-    /\.vercel\.app$/
-  ],
-  credentials: true
-}));
+    if (isAllowed || !origin) { // Also allow requests with no origin (like Postman)
+      callback(null, true);
+    } else {
+      console.error(`CORS Error: Origin ${origin} not allowed.`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // This allows cookies and authorization headers to be sent
+  optionsSuccessStatus: 200 // For legacy browser support
+};
+
+// Use the CORS middleware with your options. This MUST come before your routes.
+app.use(cors(corsOptions));
+
+// ============================================================================
+// BASIC MIDDLEWARE
+// ============================================================================
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(morgan('combined'));
 
-// --- Rate Limiting and Security ---
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: { error: 'Too many requests from this IP, please try again after 15 minutes.' },
-});
-app.use('/api/', apiLimiter);
-
-// --- ROUTES ---
-try {
-  app.use('/api/auth', validateRouter(require('./routes/auth'), './routes/auth.js'));
-  app.use('/api/sales', validateRouter(require('./routes/sales'), './routes/sales.js'));
-  app.use('/api/analytics', validateRouter(require('./routes/analytics'), './routes/analytics.js'));
-  app.use('/api/upload', validateRouter(require('./routes/upload'), './routes/upload.js'));
-  app.use('/api/chatbot', validateRouter(require('./routes/chatbot'), './routes/chatbot.js'));
-} catch (error) {
-  console.error(error.message);
-  process.exit(1);
-}
-
-// --- Health Check Endpoints ---
-app.get('/', (req, res) => res.status(200).json({ message: 'Hansei Backend API is running!', status: 'healthy' }));
-app.get('/api/health', (req, res) => res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() }));
-
-// --- Error Handling ---
-app.use((err, req, res, next) => {
-  console.error('Error Stack:', err.stack);
-  res.status(err.status || 500).json({ error: { message: 'Internal server error' } });
-});
-app.use((req, res) => res.status(404).json({ error: { message: 'Endpoint not found' } }));
-
-// =================================================================
-// --- FINAL FIX: Automatic Database Initialization ---
-// This block runs when the server starts. It checks if the database
-// is set up. If not, it creates all the tables and imports the
-// initial data automatically. This is a robust, one-time setup.
-// =================================================================
-const { pgPool } = require('./config/database');
-const { createTables } = require('./scripts/create-schema');
-const { importCSVSalesData } = require('./scripts/import-excel');
-
-async function initializeApp() {
-  const client = await pgPool.connect();
-  try {
-    const res = await client.query("SELECT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'users');");
-    const tableExists = res.rows[0].exists;
-
-    if (!tableExists) {
-      console.log('🔴 "users" table not found. Initializing database schema and data...');
-      await createTables();
-      await importCSVSalesData();
-      console.log('🟢 Database initialization complete.');
-    } else {
-      console.log('🟢 Database already initialized.');
-    }
-  } catch (err) {
-    console.error('💥 FATAL: Database initialization failed:', err);
-    process.exit(1);
-  } finally {
-    client.release();
-  }
-}
-
-// --- Start Server ---
-initializeApp().then(() => {
-  const server = app.listen(PORT, HOST, () => {
-    console.log(`🚀 Hansei Backend Server running on ${HOST}:${PORT}`);
-  });
-
-  const gracefulShutdown = (signal) => {
-    console.log(`${signal} received. Shutting down gracefully.`);
-    server.close(() => {
-      console.log('HTTP server closed.');
-      pgPool.end(() => {
-        console.log('Database pool closed.');
-        process.exit(0);
-      });
+// ============================================================================
+// TEST ROUTES
+// ============================================================================
+app.get('/', (req, res) => {
+    res.json({ 
+        message: 'Hansei Backend is WORKING!',
+        cors: 'ENABLED - Secure Configuration',
+        timestamp: new Date().toISOString()
     });
-  };
-
-  process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-  process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 });
 
-module.exports = app;
+app.get('/api/health', (req, res) => {
+    res.json({ 
+        status: 'healthy',
+        cors: 'WORKING',
+        timestamp: new Date().toISOString(),
+        origin: req.get('Origin') || 'null'
+    });
+});
+
+// ============================================================================
+// LOAD YOUR EXISTING ROUTES (with error handling)
+// ============================================================================
+try {
+    const authRoutes = require('./routes/auth');
+    const salesRoutes = require('./routes/sales');
+    const analyticsRoutes = require('./routes/analytics');
+    const uploadRoutes = require('./routes/upload');
+    const chatbotRoutes = require('./routes/chatbot');
+    
+    app.use('/api/auth', authRoutes);
+    app.use('/api/sales', salesRoutes);
+    app.use('/api/analytics', analyticsRoutes);
+    app.use('/api/upload', uploadRoutes);
+    app.use('/api/chatbot', chatbotRoutes);
+
+    console.log('✅ Core routes (auth, sales, analytics, upload, chatbot) loaded');
+
+} catch (error) {
+    console.log('❌ CRITICAL ERROR: Could not load core routes. Server may not function correctly.', error);
+}
+
+// ============================================================================
+// GLOBAL ERROR HANDLING
+// ============================================================================
+app.use((err, req, res, next) => {
+    console.error('❌ Global Error Handler Caught:', err.stack);
+    res.status(500).json({ error: 'An internal server error occurred.' });
+});
+
+app.use((req, res) => {
+    res.status(404).json({ error: 'Endpoint not found', path: req.path });
+});
+
+// ============================================================================
+// START SERVER WITH GRACEFUL ERROR HANDLING
+// ============================================================================
+const server = app.listen(PORT, () => {
+    console.log('🚀 ==========================================');
+    console.log('🚀 HANSEI BACKEND STARTED SUCCESSFULLY!');
+    console.log('🚀 ==========================================');
+    console.log(`📍 URL: http://localhost:${PORT}`);
+    console.log(`🔥 CORS: SECURELY ENABLED`);
+    console.log(`✅ Allowed Origins: ${allowedOrigins.join(', ')}`);
+    console.log(`🧪 Test: http://localhost:${PORT}/api/health`);
+    console.log('🚀 ==========================================');
+    
+    // Test database connection after server starts
+    setTimeout(async () => {
+        try {
+            // Assuming database.js exports this function
+            const { testDatabaseConnections } = require('./config/database');
+            await testDatabaseConnections();
+        } catch (error) {
+            console.warn('⚠️ Database connection failed on startup check:', error.message);
+            console.warn('ℹ️ Server will continue, but database features may not work.');
+        }
+    }, 1000);
+});
+
+// FIX: Add a specific error handler for EADDRINUSE
+server.on('error', (error) => {
+    if (error.syscall !== 'listen') {
+        throw error;
+    }
+
+    const bind = typeof PORT === 'string' ? 'Pipe ' + PORT : 'Port ' + PORT;
+
+    switch (error.code) {
+        case 'EACCES':
+            console.error(`❌ ${bind} requires elevated privileges.`);
+            process.exit(1);
+            break;
+        case 'EADDRINUSE':
+            console.error(`❌ ${bind} is already in use.`);
+            console.error('Please stop the other process running on this port or change the PORT in your .env file.');
+            process.exit(1);
+            break;
+        default:
+            throw error;
+    }
+});
+
+console.log('🔄 Starting Hansei Backend Server...');

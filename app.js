@@ -17,7 +17,7 @@ const allowedOrigins = [
   'http://127.0.0.1', // Allows 127.0.0.1 on any port
   'null', // Important for local file testing (file:///)
   'https://chennai-frontend.vercel.app', // Your deployed frontend app
-  'https://chennai-frontend-3m487rgbn-sais-projects-266c2092.vercel.app' // Add the preview URL
+  'https://*.vercel.app' // Allow all Vercel subdomains for previews
 ];
 
 // Configure CORS options
@@ -29,6 +29,8 @@ const corsOptions = {
     const isAllowed = allowedOrigins.some(allowedOrigin => {
         // Allow if origin is null (like for file://) and 'null' is in the list
         if (allowedOrigin === 'null' && !origin) return true;
+        // Handle wildcard for *.vercel.app
+        if (allowedOrigin.startsWith('https://*.') && origin && origin.endsWith(allowedOrigin.slice(9))) return true;
         // Allow if the request origin starts with one of our allowed origins
         return origin && origin.startsWith(allowedOrigin);
     });
